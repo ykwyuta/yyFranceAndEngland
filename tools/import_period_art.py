@@ -38,6 +38,7 @@ def bgra(img):
 
 
 def main():
+    raise SystemExit("Legacy atlas importer is archived. Run python tools/import_hundred_years_art.py instead.")
     manifest = json.loads((DEST / 'generation.json').read_text(encoding='utf-8'))
     preview = Image.new('RGB', (12*112, len(manifest['atlases'])*138), '#10202b')
     draw = ImageDraw.Draw(preview)

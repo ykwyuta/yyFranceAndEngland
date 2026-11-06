@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#091923" />
+    <meta name="theme-color" content="#11141d" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet" />
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #091923; overscroll-behavior: none;
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #11141d; overscroll-behavior: none;
         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
       body { touch-action: none; }
       /* 画面の縁からの余白（指で操作する端末では、ノッチ・ホームバー・戻るジェスチャーの領域を避ける） */
@@ -35,8 +35,10 @@
       /* 縦持ちでは文字が小さくなりすぎるので、横向きを促す（スマートフォン・タブレットとも） */
       @media (orientation: portrait) { :root.touch #rotate { display: flex; } }
       #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        color: #eee8d6; font: 18px "Yu Gothic UI", "Noto Sans JP", sans-serif; background: radial-gradient(ellipse at 50% 35%, #173847, #091923 70%); gap: 24px; }
-      #loading h1 { margin: 0; font-family: Georgia, Yu Mincho, serif; font-size: clamp(28px, 5vw, 48px); letter-spacing: 0.18em; color: #c8b687; }
+        color: #eee8d6; font: 18px "Yu Gothic UI", "Noto Sans JP", sans-serif; background: linear-gradient(180deg, rgba(10,13,21,.45), rgba(10,13,21,.93)), url("./key-art.jpg") center / cover; gap: 24px; }
+      #loading h1 { margin: 0; text-shadow: 0 3px 18px #000; font-family: Georgia, Yu Mincho, serif; font-size: clamp(28px, 5vw, 48px); letter-spacing: 0.18em; color: #c8b687; }
+      #loading::before { content: "FRANCE & ENGLAND · 1337 — 1453"; color: #d2bc87; font: 12px Georgia, serif; letter-spacing: .28em; }
+      #loading-msg { padding: 16px 32px; border-top: 1px solid #9c8050; font-size: 14px; letter-spacing: .08em; }
       #loading.hidden { display: none; }
       #loading .err { color: #ff8a7a; max-width: 80vw; white-space: pre-wrap; font-size: 14px; }
     </style>
