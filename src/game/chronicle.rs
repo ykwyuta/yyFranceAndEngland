@@ -1,4 +1,4 @@
-//! 史記：史実イベントの記録と、各国の君主家・在世の人物
+//! 歴史：史実イベントの記録と、各国の君主家・在世の人物
 
 use super::*;
 
@@ -13,7 +13,7 @@ impl Game {
         self.gfx.fill_rect(0.0, 0.0, w, h, [0.0, 0.0, 0.0, 0.45]);
         self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + pw, y0 + ph);
         self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + pw - 3.0, y0 + ph - 3.0, 16.0);
-        self.gfx.text_shadow(t!("史記", "Annals", "史记"), x0 + 24.0, y0 + 10.0, 120.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        self.gfx.text_shadow(t!("歴史", "History", "历史"), x0 + 24.0, y0 + 10.0, 120.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
         self.gfx.text(t!("英雄・諸子百家・政治指導者の登場と、反乱・簒奪による君主家の交代（史実の年に起こる。滅んだ国の出来事は起こらない）", "The rise of heroes, philosophers and statesmen, and changes of ruling house by revolt and usurpation (they happen in their historical year; not for fallen states)", "英雄、诸子百家、政治家的登场，以及叛乱、篡位造成的君主家更替（于史实年份发生，已灭亡国家的事件不会发生）"), x0 + 100.0, y0 + 16.0, pw - 220.0, 24.0, Font::Small, [0.85, 0.82, 0.75, 1.0]);
         self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
 

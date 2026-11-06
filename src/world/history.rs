@@ -428,7 +428,7 @@ impl World {
         self.territory_dirty = true;
         let name = tx(self.nations[n].name);
         let head = tf!("【{}・{}】{}", "[{} · {}] {}", "【{}・{}】{}", name, e.kind.label(), tx(e.title));
-        // 本文はバナーと史記に任せ、記録欄は見出しと効果だけにする
+        // 本文はバナーと歴史に任せ、記録欄は見出しと効果だけにする
         let mut msg = head;
         if !notes.is_empty() {
             msg.push_str(&tf!("（{}）", " ({})", "（{}）", notes.join(t!("、", "; ", "；"))));
@@ -486,7 +486,7 @@ impl World {
         self.banner_queue.len()
     }
 
-    /// 告知をすべて閉じる（記録欄と史記には残る）
+    /// 告知をすべて閉じる（記録欄と歴史には残る）
     pub fn dismiss_all_banners(&mut self) {
         self.banner = None;
         self.banner_queue.clear();

@@ -885,7 +885,7 @@ impl Game {
                     }
                     self.speed = std::env::var("YY_SPEED").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
                     self.zoom = z;
-                    // 撮影直前にキーを押す（例：72 で史記を開く）
+                    // 撮影直前にキーを押す（例：72 で歴史を開く）
                     // YY_PRESS は「47,48」のように複数のキーを0.5秒おきに押せる
                     if let Ok(v) = std::env::var("YY_PRESS") {
                         let at = std::env::var("YY_PRESS_AT").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(secs - 0.6);
@@ -3447,7 +3447,7 @@ impl Game {
             y += mh;
         }
         if any_msg {
-            // お知らせを消す ✕（記録は史記・外交画面に残る）
+            // お知らせを消す ✕（記録は歴史・外交画面に残る）
             let (bs, bh) = if self.gfx.compact { (36.0, 32.0) } else { (28.0, 24.0) };
             self.add_button(10.0, y + 2.0, 10.0 + bs, y + 2.0 + bh, "✕", "", 0, true, Act::ClearMsgs, t!("いま出ているお知らせを消す", "Clear the messages shown now", "清除当前显示的消息"));
         }
@@ -3486,7 +3486,7 @@ impl Game {
             if waiting > 0 {
                 let lbl = tf!("すべて閉じる（{}件）", "Close all ({})", "全部关闭（{}条）", waiting + 1);
                 let lw = self.gfx.measure(&lbl, Font::Normal) + 24.0;
-                self.add_button(x0 + bw - cs - 14.0 - lw, y0 + 8.0, x0 + bw - cs - 14.0, y0 + 8.0 + cs, &lbl, "", 0, true, Act::DismissAllBanners, t!("待っている告知もまとめて閉じる（内容は記録欄と史記に残る）", "Close every waiting notice too (they stay in the log and the Annals)", "将等待中的公告一并关闭（内容保留在记录栏与史记中）"));
+                self.add_button(x0 + bw - cs - 14.0 - lw, y0 + 8.0, x0 + bw - cs - 14.0, y0 + 8.0 + cs, &lbl, "", 0, true, Act::DismissAllBanners, t!("待っている告知もまとめて閉じる（内容は記録欄と歴史に残る）", "Close every waiting notice too (they stay in the log and History)", "将等待中的公告一并关闭（内容保留在记录栏与历史中）"));
             }
         }
 
@@ -4141,7 +4141,7 @@ impl Game {
         let s = tf!("自国の国力 {:.0}　（国力は兵の能力・街・村・民・領土から算出）", "Our strength {:.0}  (from soldiers' power, cities, workers and land)", "我国国力 {:.0}　（国力由兵力、城邑、民、领土计算）", my);
         self.gfx.text(&s, x0 + 160.0, y0 + 16.0, pw - 370.0, 24.0, Font::Normal, [0.85, 0.82, 0.75, 1.0]);
         self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
-        self.add_button(x0 + pw - 196.0, y0 + 10.0, x0 + pw - 98.0, y0 + 40.0, t!("史記 F3", "Annals F3", "史记 F3"), "", 0, true, Act::Chron, t!("英雄・諸子百家・政治指導者、反乱・簒奪の記録と各国の君主家", "Records of heroes, philosophers, statesmen, revolts and usurpations, and each state's ruling house", "英雄、诸子百家、政治家、叛乱与篡位的记录及各国君主家"));
+        self.add_button(x0 + pw - 196.0, y0 + 10.0, x0 + pw - 98.0, y0 + 40.0, t!("歴史 F3", "History F3", "历史 F3"), "", 0, true, Act::Chron, t!("英雄・諸子百家・政治指導者、反乱・簒奪の記録と各国の君主家", "Records of heroes, philosophers, statesmen, revolts and usurpations, and each state's ruling house", "英雄、诸子百家、政治家、叛乱与篡位的记录及各国君主家"));
         self.art.draw_inset_box(&self.gfx, x0 + 10.0, y0 + 48.0, x0 + pw - 10.0, y0 + ph - 10.0);
         let home = self.world.nations[pl].home;
         let mut list: Vec<usize> = (0..NATIONS.len()).filter(|&i| i != pl && self.world.nations[i].alive).collect();
