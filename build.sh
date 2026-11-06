@@ -20,7 +20,7 @@ cargo build --release --lib --target wasm32-unknown-unknown --config profile.rel
 
 rm -rf dist
 mkdir -p dist
-cp web/index.html web/main.js web/manifest.webmanifest web/icon-192.png web/icon-512.png web/apple-touch-icon.png dist/
+cp web/index.html web/main.js web/key-art.jpg web/manifest.webmanifest web/icon-192.png web/icon-512.png web/apple-touch-icon.png dist/
 cp assets/app_icon.ico dist/favicon.ico
 cp target/wasm32-unknown-unknown/release/yyfranceandengland.wasm dist/
 # wasm-opt があればさらに小さくする（任意）

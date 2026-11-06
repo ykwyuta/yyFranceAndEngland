@@ -79,6 +79,7 @@ pub struct Art {
     pub title_crest: Option<ID2D1Bitmap>,
     /// 英語の題字用（扁額を広げたもの）
     pub title_crest_wide: Option<ID2D1Bitmap>,
+    pub title_scene: Option<ID2D1Bitmap>,
     pub btn_norm: Option<ID2D1Bitmap>,
     pub btn_hover: Option<ID2D1Bitmap>,
     pub btn_dis: Option<ID2D1Bitmap>,
@@ -390,12 +391,12 @@ fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
 }
 
-/// Midnight felt and blue textile, inspired by the steppe night sky.
+/// Ink-blue manuscript binding and warm charcoal panels.
 fn gen_hud_stone(w: usize, h: usize) -> Vec<u32> {
-    textile(w, h, [0.045, 0.105, 0.15], 101)
+    textile(w, h, [0.065, 0.078, 0.115], 101)
 }
 fn gen_panel_wood(w: usize, h: usize) -> Vec<u32> {
-    textile(w, h, [0.035, 0.065, 0.09], 303)
+    textile(w, h, [0.085, 0.077, 0.067], 303)
 }
 fn textile(w: usize, h: usize, base: [f32; 3], seed: u32) -> Vec<u32> {
     let mut cv = Canvas::new(w, h);
@@ -412,9 +413,9 @@ fn textile(w: usize, h: usize, base: [f32; 3], seed: u32) -> Vec<u32> {
 fn gen_button_tex(w: usize, h: usize, state: u8) -> Vec<u32> {
     let mut cv = Canvas::new(w, h);
     let (top_c, bot_c, border_hi, border_lo) = match state {
-        1 => ([0.12, 0.32, 0.39], [0.07, 0.21, 0.29], [0.73, 0.83, 0.78], [0.20, 0.43, 0.49]), // hover
+        1 => ([0.39, 0.28, 0.14], [0.22, 0.16, 0.10], [0.91, 0.77, 0.47], [0.45, 0.33, 0.18]), // hover
         2 => ([0.20, 0.18, 0.16], [0.13, 0.12, 0.10], [0.35, 0.32, 0.28], [0.15, 0.13, 0.11]), // disabled
-        _ => ([0.08, 0.19, 0.25], [0.045, 0.115, 0.16], [0.55, 0.63, 0.60], [0.10, 0.25, 0.31]), // normal
+        _ => ([0.19, 0.16, 0.13], [0.10, 0.095, 0.09], [0.61, 0.48, 0.28], [0.23, 0.19, 0.13]), // normal
     };
     for y in 0..h {
         let ty = y as f32 / (h - 1).max(1) as f32;
@@ -440,7 +441,7 @@ fn gen_button_tex(w: usize, h: usize, state: u8) -> Vec<u32> {
     cv.to_bgra_premul()
 }
 
-/// タイトル画面用の春秋戦国・青銅鼎と戈の紋章バナー
+/// 二つの王冠を飾る写本風バナー
 /// 題字の飾りの扁額の内寸（幅）。wide は英語の題字用
 pub const TITLE_PLAQUE_W: f32 = 292.0;
 pub const TITLE_PLAQUE_W_WIDE: f32 = 292.0;
@@ -448,15 +449,12 @@ pub const TITLE_PLAQUE_W_WIDE: f32 = 292.0;
 fn gen_title_crest(_wide: bool) -> Vec<u32> {
     let mut cv = Canvas::new(340, 124);
     let gold = [0.79, 0.69, 0.46, 1.0];
-    // A spare horizon and two horsehair standards, rather than an ancient Chinese plaque.
+    // Paired crowns and gilt rules, inspired by manuscript illumination.
     cv.capsule(24.0, 106.0, 316.0, 106.0, 0.7, gold);
     for x in [14.0, 326.0] {
-        cv.capsule(x, 22.0, x, 95.0, 1.2, gold);
-        cv.poly(&[(x, 14.0), (x-4.0, 25.0), (x+4.0, 25.0)], gold);
-        cv.capsule(x-8.0, 32.0, x+8.0, 32.0, 1.0, gold);
-        for dx in [-6.0, -3.0, 0.0, 3.0, 6.0] {
-            cv.capsule(x+dx, 34.0, x+dx, 57.0-dx.abs(), 1.2, [0.85, 0.86, 0.78, 0.9]);
-        }
+        cv.poly(&[(x-9.0, 36.0), (x-11.0, 21.0), (x-4.0, 27.0), (x, 17.0), (x+4.0, 27.0), (x+11.0, 21.0), (x+9.0, 36.0)], gold);
+        cv.capsule(x-9.0, 39.0, x+9.0, 39.0, 1.2, gold);
+        cv.capsule(x, 49.0, x, 92.0, 0.6, gold);
     }
     cv.to_bgra_premul()
 }
@@ -543,9 +541,9 @@ fn gen_res_icon(kind: ResIcon) -> Vec<u32> {
         }
         ResIcon::Bronze => {
             // 青銅インゴットと孔雀石（銅鉱）の輝き
-            let dark_br = [0.58, 0.32, 0.14, 1.0];
-            let mid_br = [0.88, 0.54, 0.24, 1.0];
-            let hi_br = [1.0, 0.82, 0.48, 1.0];
+            let dark_br = [0.28, 0.30, 0.32, 1.0];
+            let mid_br = [0.52, 0.56, 0.59, 1.0];
+            let hi_br = [0.82, 0.86, 0.88, 1.0];
             // 下段2つの銅塊
             for &ox in &[16.0, 31.0] {
                 cv.poly(&[(ox - 8.0, 35.0), (ox + 8.0, 35.0), (ox + 5.5, 27.0), (ox - 5.5, 27.0)], dark_br);
@@ -558,8 +556,8 @@ fn gen_res_icon(kind: ResIcon) -> Vec<u32> {
             cv.poly(&[(ox - 7.5, 26.5), (ox + 7.5, 26.5), (ox + 5.0, 20.0), (ox - 5.0, 20.0)], mid_br);
             cv.capsule(ox - 4.5, 20.5, ox + 4.5, 20.5, 1.4, hi_br);
             // 緑青（マラカイト）の結晶ハイライト
-            cv.poly(&[(21.0, 18.0), (24.0, 10.0), (28.0, 17.5)], [0.35, 0.88, 0.68, 1.0]);
-            cv.poly(&[(16.0, 19.0), (19.0, 12.5), (22.5, 18.5)], [0.25, 0.72, 0.55, 1.0]);
+            cv.poly(&[(21.0, 18.0), (24.0, 10.0), (28.0, 17.5)], [0.37, 0.40, 0.43, 1.0]);
+            cv.poly(&[(16.0, 19.0), (19.0, 12.5), (22.5, 18.5)], [0.25, 0.28, 0.32, 1.0]);
         }
         ResIcon::Worker => {
             cv.blit_unit_sprite(0, (4.0, 4.0, 44.0, 44.0), (0.16, 0.0, 0.84, 0.68), Some((24.0, 24.0, 18.5)));
@@ -769,6 +767,7 @@ impl Art {
             panel_wood: None,
             title_crest: None,
             title_crest_wide: None,
+            title_scene: None,
             btn_norm: None,
             btn_hover: None,
             btn_dis: None,
@@ -787,6 +786,8 @@ impl Art {
         }
         self.gen = gfx.d2d_gen;
         self.period.load(gfx);
+        let scene: Vec<u32> = include_bytes!("../assets/hundred-years/title.bgra").chunks_exact(4).map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]])).collect();
+        self.title_scene = gfx.create_bitmap(768, 512, &scene);
         self.hud_stone = gfx.create_bitmap(256, 128, &gen_hud_stone(256, 128));
         self.panel_wood = gfx.create_bitmap(256, 128, &gen_panel_wood(256, 128));
         self.title_crest = gfx.create_bitmap(340, 124, &gen_title_crest(false));
@@ -850,7 +851,7 @@ impl Art {
         self.national_unit(crate::world::HEAVEN, crate::world::UT_ANGEL, flip)
     }
     pub fn divine_bld_sprite(&self, _k: BKind, fog: bool) -> Option<&ID2D1Bitmap> {
-        self.period.get(127, false, fog)
+        self.period.get(16 + 6, false, fog)
     }
 
     pub fn mountain_sprite(&self, flip_x: bool, fogged: bool) -> Option<&ID2D1Bitmap> {
@@ -894,8 +895,8 @@ impl Art {
             gfx.fill_rect(x0, y0, x1, y1, [0.11, 0.09, 0.07, 0.96]);
         }
         // 立体的な金・青銅の二重縁取り
-        gfx.stroke_rect(x0 + 0.5, y0 + 0.5, x1 - 0.5, y1 - 0.5, 2.0, [0.43, 0.57, 0.61, 0.95]);
-        gfx.stroke_rect(x0 + 3.0, y0 + 3.0, x1 - 3.0, y1 - 3.0, 1.0, [0.10, 0.23, 0.29, 0.9]);
+        gfx.stroke_rect(x0 + 0.5, y0 + 0.5, x1 - 0.5, y1 - 0.5, 2.0, [0.65, 0.51, 0.30, 0.95]);
+        gfx.stroke_rect(x0 + 3.0, y0 + 3.0, x1 - 3.0, y1 - 3.0, 1.0, [0.25, 0.20, 0.14, 0.9]);
     }
 
     /// 暗いフェルト地の情報ボックスを描画
@@ -907,7 +908,7 @@ impl Art {
         }
         // 彫り込みの影と金枠
         gfx.stroke_rect(x0, y0, x1, y1, 1.5, [0.05, 0.04, 0.03, 0.9]);
-        gfx.stroke_rect(x0 + 1.5, y0 + 1.5, x1 - 1.5, y1 - 1.5, 1.0, [0.30, 0.45, 0.49, 0.75]);
+        gfx.stroke_rect(x0 + 1.5, y0 + 1.5, x1 - 1.5, y1 - 1.5, 1.0, [0.48, 0.38, 0.24, 0.75]);
     }
 
     /// 控えめな金属の隅飾りを描画
@@ -1313,122 +1314,17 @@ fn blit_premul(cv: &mut Canvas, px: &[u32], sz: usize, dst: (f32, f32, f32, f32)
     }
 }
 
-/// 楕円を多角形で描く
-fn ellipse(cv: &mut Canvas, cx: f32, cy: f32, rx: f32, ry: f32, c: [f32; 4]) {
-    let pts: Vec<(f32, f32)> = (0..28).map(|k| {
-        let a = k as f32 / 28.0 * std::f32::consts::TAU;
-        (cx + a.cos() * rx, cy + a.sin() * ry)
-    }).collect();
-    cv.poly(&pts, c);
-}
-
-pub(crate) fn bombard_sprite_size() -> usize {
-    UNIT_SPRITE_SZ
-}
-
-/// 大砲（木の台車に載せた鉄の輪の砲身と砲手）。flip で左右反転
-pub(crate) fn gen_bombard_sprite(flip: bool) -> Vec<u32> {
-    let sz = UNIT_SPRITE_SZ;
-    let mut cv = Canvas::new(sz, sz);
-    let f = |x: f32| if flip { sz as f32 - x } else { x };
-    let poly = |cv: &mut Canvas, pts: &[(f32, f32)], c: [f32; 4]| {
-        let v: Vec<(f32, f32)> = pts.iter().map(|&(x, y)| (f(x), y)).collect();
-        cv.poly(&v, c);
-    };
-    // 影
-    ellipse(&mut cv, 80.0, 128.0, 60.0, 10.0, [0.0, 0.0, 0.0, 0.35]);
-    // 台車
-    poly(&mut cv, &[(26.0, 104.0), (120.0, 92.0), (124.0, 104.0), (30.0, 118.0)], [0.42, 0.27, 0.13, 1.0]);
-    poly(&mut cv, &[(30.0, 100.0), (118.0, 88.0), (120.0, 94.0), (30.0, 106.0)], [0.58, 0.40, 0.22, 1.0]);
-    // 車輪
-    cv.circle(f(48.0), 116.0, 13.0, [0.30, 0.19, 0.09, 1.0]);
-    cv.circle(f(48.0), 116.0, 9.0, [0.50, 0.34, 0.18, 1.0]);
-    cv.circle(f(48.0), 116.0, 3.0, [0.20, 0.13, 0.06, 1.0]);
-    cv.circle(f(104.0), 108.0, 12.0, [0.30, 0.19, 0.09, 1.0]);
-    cv.circle(f(104.0), 108.0, 8.0, [0.50, 0.34, 0.18, 1.0]);
-    cv.circle(f(104.0), 108.0, 3.0, [0.20, 0.13, 0.06, 1.0]);
-    // 砲身（鉄の帯を束ねた筒）
-    cv.capsule(f(36.0), 92.0, f(132.0), 70.0, 13.0, [0.24, 0.24, 0.26, 1.0]);
-    cv.capsule(f(36.0), 90.0, f(132.0), 68.0, 9.0, [0.40, 0.40, 0.43, 1.0]);
-    for k in 0..6 {
-        let x = 46.0 + k as f32 * 16.0;
-        let y = 90.0 - k as f32 * 3.7;
-        cv.capsule(f(x), y - 13.0, f(x + 2.0), y + 12.0, 2.2, [0.16, 0.16, 0.17, 1.0]);
-    }
-    cv.circle(f(134.0), 69.0, 9.0, [0.08, 0.08, 0.09, 1.0]);
-    // 砲手
-    cv.circle(f(22.0), 58.0, 8.0, [0.85, 0.68, 0.52, 1.0]);
-    cv.circle(f(22.0), 53.0, 8.5, [0.45, 0.45, 0.48, 1.0]);
-    poly(&mut cv, &[(12.0, 66.0), (32.0, 66.0), (34.0, 100.0), (10.0, 100.0)], [0.55, 0.22, 0.18, 1.0]);
-    cv.capsule(f(14.0), 100.0, f(12.0), 118.0, 3.5, [0.30, 0.22, 0.16, 1.0]);
-    cv.capsule(f(28.0), 100.0, f(30.0), 118.0, 3.5, [0.30, 0.22, 0.16, 1.0]);
-    // 火縄の棒
-    cv.capsule(f(32.0), 74.0, f(46.0), 84.0, 1.6, [0.35, 0.25, 0.12, 1.0]);
-    cv.circle(f(47.0), 85.0, 2.8, [1.0, 0.55, 0.15, 1.0]);
-    cv.to_bgra_premul()
-}
-
-/// 船（ジャンク風の帆船）。flip で左右反転
+/// Command icon artwork shares the same cog and harbor as the battlefield.
 fn gen_ship_sprite(flip: bool) -> Vec<u32> {
-    let sz = UNIT_SPRITE_SZ;
-    let mut cv = Canvas::new(sz, sz);
-    let f = |x: f32| if flip { sz as f32 - x } else { x };
-    let poly = |cv: &mut Canvas, pts: &[(f32, f32)], c: [f32; 4]| {
-        let v: Vec<(f32, f32)> = pts.iter().map(|&(x, y)| (f(x), y)).collect();
-        cv.poly(&v, c);
-    };
-    // 波と影
-    ellipse(&mut cv, 80.0, 128.0, 66.0, 11.0, [0.05, 0.12, 0.22, 0.45]);
-    ellipse(&mut cv, 80.0, 126.0, 58.0, 6.0, [0.80, 0.90, 1.0, 0.35]);
-    // 船体
-    poly(&mut cv, &[(18.0, 100.0), (140.0, 98.0), (150.0, 86.0), (130.0, 124.0), (36.0, 126.0), (14.0, 104.0)], [0.30, 0.18, 0.10, 1.0]);
-    poly(&mut cv, &[(20.0, 98.0), (142.0, 96.0), (146.0, 102.0), (18.0, 106.0)], [0.58, 0.38, 0.20, 1.0]);
-    poly(&mut cv, &[(30.0, 112.0), (134.0, 110.0), (128.0, 118.0), (38.0, 120.0)], [0.42, 0.26, 0.13, 1.0]);
-    // 艫の楼
-    poly(&mut cv, &[(22.0, 78.0), (58.0, 78.0), (58.0, 99.0), (22.0, 100.0)], [0.48, 0.30, 0.15, 1.0]);
-    poly(&mut cv, &[(18.0, 76.0), (62.0, 76.0), (60.0, 70.0), (20.0, 70.0)], [0.70, 0.20, 0.16, 1.0]);
-    // 帆柱
-    cv.capsule(f(82.0), 22.0, f(82.0), 100.0, 2.4, [0.24, 0.15, 0.08, 1.0]);
-    cv.capsule(f(114.0), 40.0, f(114.0), 98.0, 2.0, [0.24, 0.15, 0.08, 1.0]);
-    // 帆（竹の骨の入った網代帆）
-    poly(&mut cv, &[(58.0, 26.0), (104.0, 22.0), (108.0, 90.0), (60.0, 92.0)], [0.86, 0.76, 0.56, 1.0]);
-    poly(&mut cv, &[(100.0, 42.0), (132.0, 40.0), (134.0, 88.0), (102.0, 90.0)], [0.82, 0.70, 0.50, 1.0]);
-    for k in 0..6 {
-        let y = 32.0 + k as f32 * 11.0;
-        cv.capsule(f(59.0), y, f(105.0), y - 3.0, 1.1, [0.45, 0.32, 0.18, 0.9]);
-    }
-    for k in 0..4 {
-        let y = 50.0 + k as f32 * 11.0;
-        cv.capsule(f(101.0), y, f(133.0), y - 1.5, 1.0, [0.45, 0.32, 0.18, 0.9]);
-    }
-    // 旗
-    poly(&mut cv, &[(82.0, 14.0), (100.0, 18.0), (82.0, 24.0)], [0.85, 0.15, 0.12, 1.0]);
+    const CELL: usize = 192 * 192 * 4;
+    let raw = include_bytes!("../assets/hundred-years/units.bgra");
+    let mut cv = Canvas::new(160, 160);
+    cv.blit_raw_sprite(&raw[12 * CELL..13 * CELL], 192, (0.0, 0.0, 160.0, 160.0),
+        if flip { (1.0, 0.0, 0.0, 1.0) } else { (0.0, 0.0, 1.0, 1.0) }, None);
     cv.to_bgra_premul()
 }
-
-/// 港（桟橋と倉、舫った小舟）
 fn gen_port_sprite(mul: f32) -> Vec<u32> {
-    let sz = BLD_SPRITE_SZ;
-    let mut cv = Canvas::new(sz, sz);
-    let m = |c: [f32; 4]| [c[0] * mul, c[1] * mul, c[2] * mul, c[3]];
-    // 水
-    ellipse(&mut cv, 96.0, 140.0, 86.0, 40.0, m([0.16, 0.36, 0.56, 0.85]));
-    ellipse(&mut cv, 96.0, 140.0, 70.0, 28.0, m([0.22, 0.46, 0.66, 0.6]));
-    // 桟橋
-    cv.round_rect(34.0, 110.0, 160.0, 126.0, 3.0, m([0.50, 0.33, 0.18, 1.0]));
-    for k in 0..9 {
-        let x = 40.0 + k as f32 * 14.0;
-        cv.capsule(x, 110.0, x, 126.0, 0.9, m([0.32, 0.20, 0.10, 1.0]));
-        cv.capsule(x + 4.0, 126.0, x + 4.0, 140.0, 2.2, m([0.30, 0.19, 0.10, 1.0]));
-    }
-    // 倉
-    cv.poly(&[(40.0, 62.0), (124.0, 62.0), (124.0, 108.0), (40.0, 108.0)], m([0.66, 0.54, 0.38, 1.0]));
-    cv.poly(&[(30.0, 64.0), (82.0, 30.0), (134.0, 64.0)], m([0.30, 0.24, 0.22, 1.0]));
-    cv.poly(&[(36.0, 62.0), (82.0, 34.0), (128.0, 62.0)], m([0.40, 0.30, 0.26, 1.0]));
-    cv.round_rect(72.0, 80.0, 92.0, 108.0, 2.0, m([0.30, 0.20, 0.12, 1.0]));
-    // 小舟
-    cv.poly(&[(118.0, 146.0), (176.0, 144.0), (168.0, 160.0), (126.0, 161.0)], m([0.36, 0.22, 0.12, 1.0]));
-    cv.capsule(146.0, 106.0, 146.0, 146.0, 1.8, m([0.24, 0.15, 0.08, 1.0]));
-    cv.poly(&[(134.0, 112.0), (160.0, 110.0), (162.0, 140.0), (136.0, 141.0)], m([0.86, 0.78, 0.60, 1.0]));
-    cv.to_bgra_premul()
+    const CELL: usize = 192 * 192 * 4;
+    let raw = include_bytes!("../assets/hundred-years/buildings.bgra");
+    load_raw_sprite_bgra(&raw[7 * CELL..8 * CELL], 192, false, mul)
 }

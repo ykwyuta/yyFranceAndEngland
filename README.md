@@ -68,7 +68,7 @@ cargo run --release --bin yyfranceandengland-win
 | `src/i18n.rs` | データの英語・中国語訳（`tools/gendata.py` が生成） |
 | `src/ai.rs` | コンピュータの王国（陸地ごとの攻撃、騎行、港と船、傭兵） |
 | `src/game.rs` ほか `src/game/*` | 画面、入力、HUD、外交・ヘルプ・史記・交易・英雄と捕虜・記録・チュートリアル |
-| `src/art.rs`・`src/art/historical.rs` | アイコン・UI・兵と建物の絵（ラテン・西欧の絵、大砲と天使は手続き的に描く） |
+| `src/art.rs`・`src/art/historical.rs` | アイコン・写本風UI・百年戦争専用の兵、建物、船、大砲、25人の英雄の絵 |
 | `src/web.rs`・`src/gfx.rs`・`src/platform.rs`・`web/` | ブラウザ版 |
 | `src/main.rs`・`src/win/*` | Windows 版 |
 
@@ -89,4 +89,6 @@ SIM_YEARS=120 cargo test --release long_sim -- --nocapture  # 両国 AI で1337�
 ## 出典
 
 地図の海岸線・湖・河川は [Natural Earth](https://www.naturalearthdata.com/)（パブリックドメイン）の 1:10m データを簡略化したもの。
-ゲームエンジンの土台は [yyMongolia](https://github.com/ykwyuta/yyMongolia) のもの。兵と建物の絵は yyMongolia のラテン・正教圏のアセットを使い、国の色の紋章で英仏を見分ける。
+ゲームエンジンの土台は [yyMongolia](https://github.com/ykwyuta/yyMongolia) のもの。兵・建物・地形・船・大砲・英雄は、内蔵画像生成ツールで1337〜1453年の英仏を想定して新規制作した専用アセットを使う。生成イラストは人物・装備・紋章の解釈であり、肖像や個々の紋章の厳密な復元ではない。
+
+原画・生成プロンプト・確認用一覧は `assets/hundred-years/`。`python tools/import_hundred_years_art.py` で透過PNGからゲーム用BGRA、共通アイコン、起動画面の画像を再生成する。旧 `assets/period/` は資料として残すが実行時には読み込まない。甲冑の年代の参考：[The Met — Visored Bascinet, 1375–1400](https://www.metmuseum.org/art/collection/search/21986)。

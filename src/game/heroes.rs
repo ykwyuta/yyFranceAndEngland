@@ -35,10 +35,13 @@ impl Game {
             }
             let nc = self.world.nations[d.nation].color;
             self.gfx.fill_rect(rx + 4.0, ry + 6.0, rx + 10.0, ry + rowh - 6.0, c4(nc, 1.0));
-            let tx = rx + 16.0;
+            if let Some(sprite) = self.art.period_hero(k, false) {
+                self.gfx.draw_bitmap(sprite, rx + 13.0, ry + 1.0, rx + 13.0 + rowh, ry + rowh - 1.0);
+            }
+            let tx = rx + 18.0 + rowh;
             let ny = ry + (rowh - 38.0).max(0.0) * 0.5;
-            self.gfx.text(crate::lang::tx(d.name), tx, ny, 300.0, 20.0, Font::Normal, if d.nation == pl { gold } else { tc });
-            self.gfx.text(crate::lang::tx(d.era), tx, ny + 19.0, 300.0, 17.0, Font::Small, dim);
+            self.gfx.text(crate::lang::tx(d.name), tx, ny, 250.0, 20.0, Font::Normal, if d.nation == pl { gold } else { tc });
+            self.gfx.text(crate::lang::tx(d.era), tx, ny + 19.0, 250.0, 17.0, Font::Small, dim);
             let st = self.world.hero_status(k);
             let cap = self.world.captives.iter().find(|c| c.hero == k).cloned();
             let st = match &cap {
@@ -46,7 +49,7 @@ impl Game {
                 None => st.to_string(),
             };
             let scol = if cap.is_some() { [1.0, 0.6, 0.5, 1.0] } else { [0.7, 0.92, 1.0, 1.0] };
-            self.gfx.text(&st, tx + 300.0, ry + (rowh - 20.0) * 0.5, colw - 420.0, 20.0, Font::Small, scol);
+            self.gfx.text(&st, tx + 250.0, ry + (rowh - 20.0) * 0.5, (colw - 376.0 - rowh).max(46.0), 20.0, Font::Small, scol);
             if let Some(c) = cap.filter(|c| c.captor == pl) {
                 let amount = self.world.ransom_price(k);
                 let owner = d.nation;

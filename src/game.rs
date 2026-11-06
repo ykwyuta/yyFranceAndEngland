@@ -3084,6 +3084,11 @@ impl Game {
         }
         let px = w - 380.0;
         self.art.draw_stone_panel(&self.gfx, px, 0.0, w, h);
+        if let Some(scene) = &self.art.title_scene {
+            self.gfx.draw_bitmap(scene, px + 4.0, 4.0, w - 4.0, 308.0);
+            self.gfx.fill_rect(px + 4.0, 4.0, w - 4.0, 308.0, [0.025, 0.03, 0.05, 0.64]);
+        }
+
         self.art.draw_corner_ornaments(&self.gfx, px + 4.0, 4.0, w - 4.0, h - 4.0, 18.0);
         // 英語の題字は長いので、扁額を広げた飾りを使う
         let wide = crate::lang::lang() == crate::lang::Lang::En;
@@ -3111,6 +3116,14 @@ impl Game {
             Font::Normal,
             [0.90, 0.86, 0.78, 1.0],
         );
+        }
+        if self.title_sel.is_none() && !compact {
+            if let Some(scene) = &self.art.title_scene {
+                self.gfx.draw_bitmap(scene, px + 20.0, 322.0, w - 20.0, 526.0);
+                self.gfx.fill_rect(px + 20.0, 482.0, w - 20.0, 526.0, [0.03, 0.035, 0.05, 0.82]);
+                self.gfx.text(t!("二つの王冠、一つの王位", "Two crowns. One throne.", "两顶王冠，一个王位"), px + 26.0, 488.0, 328.0, 28.0, Font::BigCenter, [0.91, 0.82, 0.62, 1.0]);
+                self.art.draw_corner_ornaments(&self.gfx, px + 19.0, 321.0, w - 19.0, 527.0, 12.0);
+            }
         }
         if let Some(i) = self.title_sel {
             let n = &self.world.nations[i];

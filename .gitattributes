@@ -1,0 +1,2 @@
+# Raw premultiplied image data must never undergo line-ending conversion.
+*.bgra binary
