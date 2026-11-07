@@ -92,3 +92,10 @@ SIM_YEARS=120 cargo test --release long_sim -- --nocapture  # 両国 AI で1337�
 ゲームエンジンの土台は [yyMongolia](https://github.com/ykwyuta/yyMongolia) のもの。兵・建物・地形・船・大砲・英雄は、内蔵画像生成ツールで1337〜1453年の英仏を想定して新規制作した専用アセットを使う。生成イラストは人物・装備・紋章の解釈であり、肖像や個々の紋章の厳密な復元ではない。
 
 原画・生成プロンプト・確認用一覧は `assets/hundred-years/`。`python tools/import_hundred_years_art.py` で透過PNGからゲーム用BGRA、共通アイコン、起動画面の画像を再生成する。旧 `assets/period/` は資料として残すが実行時には読み込まない。甲冑の年代の参考：[The Met — Visored Bascinet, 1375–1400](https://www.metmuseum.org/art/collection/search/21986)。
+
+
+## ブラウザ版のキャッシュ更新
+
+右下の「↻ キャッシュ更新」で、セーブデータと設定を残したままゲームのキャッシュを更新して再読み込みできます。未保存の進行は戻らないため、必要なら先にF5の記録画面で保存してください。保存処理中は完了を待ち、保存失敗やメモリ上だけの記録がある場合は再読み込みを中止します。通信に失敗した場合も対局画面に留まります。
+
+確認テスト：`node tools/test-browser-recovery.cjs`
