@@ -435,10 +435,10 @@ pub struct Nation {
 
 impl Nation {
     pub fn worker_cap(&self) -> u32 {
-        (8 + self.cities * 2 / 3 + self.villages).min(70) + self.cap_bonus
+        (16 + self.cities * 2 / 3 + self.villages).min(100) + self.cap_bonus
     }
     pub fn mil_cap(&self) -> u32 {
-        (8 + self.cities * 2 / 3 + self.villages).min(70) + self.cap_bonus
+        (60 + self.cities + self.villages * 3).min(200) + self.cap_bonus
     }
     /// 築ける要塞の数（街3つごとに1つ、最大6）
     pub fn fort_cap(&self) -> u32 {
@@ -668,7 +668,7 @@ impl World {
                 bias: d.bias,
                 alive: true,
                 appeared: true,
-                res: [200.0, 200.0, 100.0],
+                res: [800.0, 650.0, 400.0],
                 aggression: 0.0,
                 hegemon_cd: 0.0,
                 capital: None,
@@ -758,7 +758,7 @@ impl World {
         for i in 0..nn {
             let r = ROSTERS[i];
             let Some(c) = w.nations[i].capital else { continue };
-            for k in [UT_WORKER, UT_WORKER, UT_WORKER, UT_WORKER, r[0], r[0], r[1], r[1]] {
+            for k in std::iter::repeat(UT_WORKER).take(8).chain(std::iter::repeat(r[0]).take(6)).chain(std::iter::repeat(r[1]).take(6)) {
                 if let Some(sp) = w.spawn_point(c) {
                     w.spawn_unit(i, k, sp, 1.0);
                 }
@@ -766,7 +766,7 @@ impl World {
         }
         if let Some(bdx) = w.town_bld(town_id("ボルドー")) {
             let h = w.bh(bdx);
-            for k in [UT_WORKER, UT_WORKER, 5, 4, 4] {
+            for k in std::iter::repeat(UT_WORKER).take(6).chain(std::iter::repeat(5).take(8)).chain(std::iter::repeat(UT_LONGBOW).take(8)) {
                 if let Some(sp) = w.spawn_point(h) {
                     w.spawn_unit(ENGLAND, k, sp, 1.0);
                 }
