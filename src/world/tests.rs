@@ -6,6 +6,21 @@ fn town(w: &World, name: &str) -> usize {
     w.town_bld(town_id(name)).unwrap_or_else(|| panic!("{} が無い", name))
 }
 
+#[test]
+fn large_armies_have_room_to_grow() {
+    let mut w = World::new(12345);
+    for n in [ENGLAND, FRANCE] {
+        assert!(w.nations[n].soldiers >= 12);
+        assert!(w.nations[n].workers >= 8);
+        assert!(w.nations[n].mil_cap() >= 80);
+        let cap = w.nations[n].mil_cap();
+        w.nations[n].villages += 1;
+        assert_eq!(w.nations[n].mil_cap(), cap + 3);
+        w.nations[n].villages = 100;
+        assert_eq!(w.nations[n].mil_cap(), 200);
+    }
+}
+
 /// 年表は昇順で、国の番号と君主家の表が国家データと揃っている
 #[test]
 fn history_table() {
@@ -311,9 +326,22 @@ fn long_sim() {
     let mut next_report = 0.0;
     let mut seen_t = -1.0f32;
     let mut steps = 0usize;
+    let mut peak_soldiers = [0; NATIONS.len()];
+    let mut peak_active = [0; NATIONS.len()];
+    let continent = w.land_region_at(w.nations[FRANCE].home);
+    let mut peak_english_continental = 0;
+    let mut peak_english_continental_active = 0;
     while w.years < years + 1.0 {
         steps += 1;
         w.step();
+        let english_land: Vec<_> = w.units.iter().filter(|u| u.on_map() && u.nation as usize == ENGLAND && u.kind.military() && !u.kind.naval() && w.land_region_at(u.pos) == continent).collect();
+        peak_english_continental = peak_english_continental.max(english_land.len());
+        peak_english_continental_active = peak_english_continental_active.max(english_land.iter().filter(|u| matches!(u.order, Order::AttackMove(_) | Order::Attack(_))).count());
+        for n in 0..NATIONS.len() {
+            peak_soldiers[n] = peak_soldiers[n].max(w.nations[n].soldiers);
+            let active = w.units.iter().filter(|u| u.alive && u.nation as usize == n && u.kind.military() && !u.kind.naval() && matches!(u.order, Order::AttackMove(_) | Order::Attack(_) | Order::Ferry(..) | Order::Board(_))).count();
+            peak_active[n] = peak_active[n].max(active);
+        }
         if w.years >= next_report {
             next_report += 5.0;
             let alive: Vec<String> = (0..NATIONS.len())
@@ -335,6 +363,8 @@ fn long_sim() {
         }
     }
     println!("elapsed {:.1}s for {} steps", t0.elapsed().as_secs_f32(), steps);
+    println!("peak regular soldiers={peak_soldiers:?}, advancing/fighting (incl. mercenaries/heroes)={peak_active:?} (England, France)");
+    println!("English continental peak={peak_english_continental}, advancing/fighting={peak_english_continental_active} (excludes ships and ferry waiting)");
 }
 
 

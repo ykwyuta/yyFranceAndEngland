@@ -123,7 +123,9 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
         // 民の少ない陸地の街を優先する
         let pick = free.iter().copied().min_by_key(|&c| {
             let cc = w.bld(c).unwrap().center();
-            workers.iter().filter(|x| w.same_land(x.2, cc)).count()
+            let count = workers.iter().filter(|x| w.same_land(x.2, cc)).count();
+            // 英軍は大陸の現地生産を厚くする（大陸：本土がおよそ2：1）。
+            count * if n == ENGLAND && w.same_land(cc, home) { 2 } else { 1 }
         });
         if let Some(c) = pick {
             let _ = w.enqueue(c, UT_WORKER);
@@ -152,7 +154,7 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
         }
     }
 
-    // ---- 兵営：街のある陸地（ブリテン島と大陸）ごとに一つ
+    // ---- 兵営：戦時は働き手の数に合わせて最大六つまで増やす
     let res = w.nations[n].res;
     if res[1] >= 150.0 && res[2] >= 30.0 {
         let mut regions: Vec<(u32, V2)> = Vec::new();
@@ -163,9 +165,14 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
                 regions.push((r, cc));
             }
         }
+        if n == ENGLAND {
+            regions.sort_by_key(|&(r, _)| r == w.land_region_at(home));
+        }
         for (r, cc) in regions.into_iter().take(3) {
-            let has = w.blds.iter().any(|b| b.alive && b.nation as usize == n && b.kind == BKind::Barracks && w.land_region_at(b.center()) == r);
-            if has {
+            let count = w.blds.iter().filter(|b| b.alive && b.nation as usize == n && b.kind == BKind::Barracks && w.land_region_at(b.center()) == r).count();
+            let workforce = workers.iter().filter(|s| w.land_region_at(s.2) == r).count();
+            let want = if at_war_any { (1 + workforce / 6).clamp(2, 6) } else { 1 };
+            if count >= want {
                 continue;
             }
             // その陸地の民がいなければ建てない
@@ -198,11 +205,20 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
     if w.nations[n].upkeep > w.nations[n].income[0] * 0.5 {
         want[0] += 0.15;
     }
+    if res[0] < 200.0 {
+        want[0] += 0.3;
+    }
     let sumw: f32 = want.iter().sum();
     // 田が足りなければ作る
     let food_target = (total * want[0] / sumw).round() as usize;
     if farms < food_target.max(1) && res[1] >= 60.0 && unfinished.len() < 3 {
-        let c = cities[a.rng.below(cities.len() as u32) as usize];
+        // 働き手のいる街の近くに田を集め、遠方の無人の街への建設を避ける。
+        let c = cities.iter().copied().max_by_key(|&c| {
+            let cc = w.bld(c).unwrap().center();
+            let local_workers = workers.iter().filter(|x| x.2.dist(cc) < 14.0).count();
+            let local_farms = w.blds.iter().filter(|b| b.alive && b.nation as usize == n && b.kind == BKind::Farm && b.center().dist(cc) < 14.0).count();
+            (local_workers as f32 * want[0] / sumw - local_farms as f32).round() as i32
+        }).unwrap();
         let cc = w.bld(c).unwrap().center();
         if let Some((tx, ty)) = find_spot(w, n, BKind::Farm, cc, 2.5, 6.0, &mut a.rng) {
             if let Ok(bh) = w.place_building(n, BKind::Farm, tx, ty) {
@@ -221,6 +237,22 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
                     w.order_build(&[workers[k].0], bh);
                     workers[k].1 = Order::Build(bh);
                 }
+            }
+        }
+    }
+    // 過剰な資源の採集者も配分を見直す。荷を運んでいる民は引き戻さない。
+    // 一度に二人までにして、配分の揺れと移動の浪費を抑える。
+    let mut reassigned = 0;
+    for x in workers.iter_mut() {
+        if reassigned >= 2 {
+            break;
+        }
+        if let Order::Gather { src, .. } = x.1 {
+            let k = src.res();
+            if gathering[k] as f32 > want[k] / sumw * total + 2.0 && w.unit(x.0).map_or(false, |u| u.carry < 0.1) {
+                gathering[k] = gathering[k].saturating_sub(1);
+                x.1 = Order::Idle;
+                reassigned += 1;
             }
         }
     }
@@ -290,16 +322,26 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
     }
 
     // ---- 軍の訓練
-    let nat = &w.nations[n];
-    let res = nat.res;
-    let food_ok = res[0] > 350.0 || nat.income[0] > nat.upkeep * 1.3 + 0.3;
-    if nm < mc && res[0] >= 100.0 && food_ok && !barracks.is_empty() {
-        let b = barracks[a.rng.below(barracks.len() as u32) as usize];
+    // 英軍の限られた糧・鉄は、先に大陸の兵営へ回す。
+    if n == ENGLAND {
+        barracks.sort_by_key(|&b| w.same_land(w.bld(b).unwrap().center(), home));
+    }
+    // 空いている兵営をすべて使う。支払い後の残高と予約兵数を毎回確認する。
+    for &b in &barracks {
+        let nat = &w.nations[n];
+        let res = nat.res;
+        let food_ok = res[0] > 350.0 || nat.income[0] > nat.upkeep * 1.3 + 0.3;
+        if nat.soldiers + nat.q_soldiers >= mc || res[0] < 100.0 || !food_ok {
+            break;
+        }
         if w.bld(b).map_or(false, |x| x.queue.len() < 2) {
             // 作れる兵から選ぶ（自国の兵を多めに、強い兵ほど少し多めに）
             let list = w.bld(b).map(|x| w.trainable_at(x)).unwrap_or_default();
             if !list.is_empty() {
-                let wt: Vec<f32> = list.iter().enumerate().map(|(k, &(_, o))| (1.0 + k as f32 * 0.25) * if o == n { 1.0 } else { 0.6 }).collect();
+                let wt: Vec<f32> = list.iter().enumerate().map(|(k, &(ut, o))| {
+                    let levy = if n == ENGLAND && matches!(udef(ut).class, UnitKind::Infantry | UnitKind::Archer) { 1.8 } else { 1.0 };
+                    (1.0 + k as f32 * 0.25) * if o == n { levy } else { 0.6 }
+                }).collect();
                 let tot: f32 = wt.iter().sum();
                 let mut x = a.rng.f32() * tot;
                 let mut pick = list[0].0;
@@ -342,7 +384,7 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
                 }
             }
         }
-        let want_ships = ((soldiers.len() + SHIP_CAP - 1) / SHIP_CAP).clamp(2, 4);
+        let want_ships = ((soldiers.len() + SHIP_CAP - 1) / SHIP_CAP).clamp(2, 8);
         let queued: usize = ports.iter().filter_map(|&p| w.bld(p)).map(|b| b.queue.len()).sum();
         if ships.len() + queued < want_ships && nm < mc {
             if let Some(&p) = ports.first() {
@@ -373,7 +415,7 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
 
     // ---- 外交
     if a.war_t <= 0.0 {
-        a.war_t = 6.0 + a.rng.f32() * 4.0;
+        a.war_t = 4.0 + a.rng.f32() * 2.0;
         diplomacy(w, n, a, soldiers.len());
     }
 
@@ -406,10 +448,10 @@ fn diplomacy(w: &mut World, n: usize, a: &mut AiState, nsold: usize) {
     }
     // 宣戦
     let wars = (0..NATIONS.len()).filter(|&o| w.at_war(n, o)).count();
-    if wars > 0 || nsold < 5 {
+    if wars > 0 || nsold < 3 {
         return;
     }
-    if !a.rng.chance(0.3 * a.aggr) {
+    if !a.rng.chance(0.6 * a.aggr) {
         return;
     }
     let home = w.nations[n].home;
@@ -471,14 +513,23 @@ fn command_army(w: &mut World, n: usize, a: &mut AiState, soldiers: &[(Handle, O
                 intruder = Some(u.pos);
             }
         }
+        let mut defenders = Vec::new();
         if let Some(p) = intruder {
-            let hs: Vec<Handle> = group.iter().filter(|s| s.1 == Order::Idle || (matches!(s.1, Order::AttackMove(_)) && s.2.dist(p) < 40.0)).map(|s| s.0).collect();
-            if !hs.is_empty() {
-                w.order_move(&hs, p, true);
+            let mut available: Vec<_> = group.iter().filter(|s| s.1 == Order::Idle || (matches!(s.1, Order::AttackMove(_)) && s.2.dist(p) < 40.0)).collect();
+            if n == ENGLAND {
+                available.sort_by(|a, b| a.2.dist(p).total_cmp(&b.2.dist(p)));
+                let enemies = w.units.iter().filter(|u| u.on_map() && w.at_war(n, u.nation as usize) && u.pos.dist(p) < 12.0).count();
+                available.truncate((enemies * 2).clamp(4, 24));
             }
-            continue;
+            defenders = available.iter().map(|s| s.0).collect();
+            if !defenders.is_empty() {
+                w.order_move(&defenders, p, true);
+            }
+            if n != ENGLAND {
+                continue;
+            }
         }
-        let idle: Vec<Handle> = group.iter().filter(|s| s.1 == Order::Idle).map(|s| s.0).collect();
+        let idle: Vec<Handle> = group.iter().filter(|s| s.1 == Order::Idle && !defenders.contains(&s.0)).map(|s| s.0).collect();
         if at_war.is_empty() {
             // 平時：遠くの兵は最寄りの街へ戻る
             let far: Vec<Handle> = group.iter().filter(|s| s.1 == Order::Idle && s.2.dist(base) > 12.0).map(|s| s.0).collect();
@@ -491,8 +542,15 @@ fn command_army(w: &mut World, n: usize, a: &mut AiState, soldiers: &[(Handle, O
         if a.attack_t > 0.0 {
             continue;
         }
-        let need = ((group.len() as f32) * 0.6).ceil().max(4.0) as usize;
-        if idle.len() < need.min(group.len()).max(3) {
+        // 初動は6〜16人でまとめて出撃。後続は全軍の待機を待たず、
+        // 軍の規模に応じた4〜10人の増援として送る。
+        let advancing = group.iter().any(|s| matches!(s.1, Order::AttackMove(_) | Order::Attack(_)));
+        // 英軍の大陸遠征は現地で補充し、さらに大きな部隊で攻勢を続ける。
+        let expedition = n == ENGLAND && reg != w.land_region_at(w.nations[n].home);
+        let need = if expedition {
+            if advancing { (group.len() / 6).clamp(8, 16) } else { (group.len() / 2).clamp(12, 24) }
+        } else if advancing { (group.len() / 8).clamp(4, 10) } else { group.len().clamp(6, 16) };
+        if idle.len() < need {
             continue;
         }
         // 目標：同じ陸地の敵の街、ときに村（騎行）。無ければ海の向こうの街へ（船があれば渡る）
@@ -531,7 +589,7 @@ fn command_army(w: &mut World, n: usize, a: &mut AiState, soldiers: &[(Handle, O
         }
     }
     if attacked {
-        a.attack_t = 8.0;
+        a.attack_t = 4.0 / a.aggr.clamp(0.6, 1.4);
     }
 }
 
@@ -555,5 +613,140 @@ fn naval_target(w: &World, n: usize) -> Option<V2> {
     }
     let _ = land_target;
     best.map(|b| b.1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geo::FRANCE;
+
+    fn army(w: &mut World, idle: usize, advancing: usize) -> Vec<(Handle, Order, V2, f32)> {
+        let pos = w.land_near(w.nations[FRANCE].home, 4)[0];
+        army_at(w, FRANCE, pos, idle, advancing)
+    }
+
+    fn army_at(w: &mut World, nation: usize, pos: V2, idle: usize, advancing: usize) -> Vec<(Handle, Order, V2, f32)> {
+        w.units.clear();
+        let goal = w.blds.iter().find(|b| b.alive && b.nation as usize != nation && w.same_land(pos, b.center())).unwrap().center();
+        (0..idle + advancing).map(|i| {
+            let h = w.spawn_unit(nation, UT_INF, pos, 1.0);
+            let order = if i < idle { Order::Idle } else { Order::AttackMove(goal) };
+            w.unit_mut(h).unwrap().order = order;
+            (h, order, pos, 1.0)
+        }).collect()
+    }
+
+    #[test]
+    fn main_army_launches_together() {
+        let mut w = World::new(12345);
+        let troops = army(&mut w, 16, 0);
+        let mut ai = AiState::new(1);
+        command_army(&mut w, FRANCE, &mut ai, &troops);
+        assert!(troops.iter().all(|s| matches!(w.unit(s.0).unwrap().order, Order::AttackMove(_))));
+        assert!(ai.attack_t > 0.0 && ai.attack_t < 8.0);
+    }
+
+    #[test]
+    fn reinforcements_join_without_waiting_for_the_main_army() {
+        let mut w = World::new(12345);
+        let troops = army(&mut w, 6, 42);
+        let mut ai = AiState::new(1);
+        command_army(&mut w, FRANCE, &mut ai, &troops);
+        assert!(troops[..6].iter().all(|s| matches!(w.unit(s.0).unwrap().order, Order::AttackMove(_))));
+        // 進軍中の先発隊の命令は変更しない。
+        assert!(troops[6..].iter().all(|s| w.unit(s.0).unwrap().order == s.1));
+    }
+
+    #[test]
+    fn isolated_soldier_waits_for_reinforcements() {
+        let mut w = World::new(12345);
+        let troops = army(&mut w, 1, 8);
+        command_army(&mut w, FRANCE, &mut AiState::new(1), &troops);
+        assert_eq!(w.unit(troops[0].0).unwrap().order, Order::Idle);
+    }
+
+    #[test]
+    fn small_groups_wait_to_form_a_wave() {
+        let mut w = World::new(12345);
+        for (idle, advancing) in [(5, 0), (3, 24)] {
+            let troops = army(&mut w, idle, advancing);
+            command_army(&mut w, FRANCE, &mut AiState::new(1), &troops);
+            assert!(troops[..idle].iter().all(|s| w.unit(s.0).unwrap().order == Order::Idle));
+        }
+    }
+
+    #[test]
+    fn attack_cooldown_and_peace_still_prevent_sorties() {
+        let mut w = World::new(12345);
+        let troops = army(&mut w, 16, 0);
+        let mut ai = AiState::new(1);
+        ai.attack_t = 1.0;
+        command_army(&mut w, FRANCE, &mut ai, &troops);
+        assert!(troops.iter().all(|s| w.unit(s.0).unwrap().order == Order::Idle));
+        ai.attack_t = 0.0;
+        w.make_peace(FRANCE, ENGLAND, 3.0);
+        command_army(&mut w, FRANCE, &mut ai, &troops);
+        assert!(troops.iter().all(|s| !matches!(w.unit(s.0).unwrap().order, Order::AttackMove(_) | Order::Attack(_))));
+        for _ in 0..100 {
+            diplomacy(&mut w, FRANCE, &mut ai, 3);
+        }
+        assert!(!w.at_war(FRANCE, ENGLAND), "休戦中は再宣戦しない");
+    }
+
+    #[test]
+    fn wartime_production_uses_each_barracks_without_exceeding_cap() {
+        let mut w = World::new(12345);
+        let home = w.nations[FRANCE].home;
+        let mut ai = AiState::new(1);
+        let mut barracks = Vec::new();
+        for _ in 0..2 {
+            let (x, y) = find_spot(&w, FRANCE, BKind::Barracks, home, 3.0, 10.0, &mut ai.rng).unwrap();
+            barracks.push(w.spawn_building(FRANCE, BKind::Barracks, x, y, true));
+        }
+        w.update_stats();
+        w.nations[FRANCE].res = [1000.0; 3];
+        think(&mut w, FRANCE, &mut ai);
+        assert!(barracks.iter().all(|&h| w.bld(h).unwrap().queue.len() == 1));
+        w.nations[FRANCE].q_soldiers = w.nations[FRANCE].mil_cap() - w.nations[FRANCE].soldiers;
+        think(&mut w, FRANCE, &mut ai);
+        assert!(barracks.iter().all(|&h| w.bld(h).unwrap().queue.len() == 1));
+    }
+
+    #[test]
+    fn english_army_keeps_advancing_while_a_small_guard_defends() {
+        let mut w = World::new(12345);
+        let pos = w.blds.iter().find(|b| b.alive && b.nation as usize == ENGLAND && !w.same_land(b.center(), w.nations[ENGLAND].home)).unwrap().center();
+        let pos = w.land_near(pos, 4)[0];
+        let troops = army_at(&mut w, ENGLAND, pos, 30, 0);
+        w.spawn_unit(FRANCE, UT_INF, pos, 1.0);
+        command_army(&mut w, ENGLAND, &mut AiState::new(1), &troops);
+        let mut guards = 0;
+        let mut advancing = 0;
+        for s in &troops {
+            if let Order::AttackMove(goal) = w.unit(s.0).unwrap().order {
+                if goal.dist(pos) < 2.0 { guards += 1; } else { advancing += 1; }
+            }
+        }
+        assert_eq!(guards, 4);
+        assert_eq!(advancing, 26);
+    }
+
+    #[test]
+    fn english_recruitment_prioritizes_continental_barracks() {
+        let mut w = World::new(12345);
+        let home = w.nations[ENGLAND].home;
+        let continent = w.blds.iter().find(|b| b.alive && b.nation as usize == ENGLAND && !w.same_land(b.center(), home)).unwrap().center();
+        let mut ai = AiState::new(1);
+        let (x, y) = find_spot(&w, ENGLAND, BKind::Barracks, home, 3.0, 10.0, &mut ai.rng).unwrap();
+        let home_barracks = w.spawn_building(ENGLAND, BKind::Barracks, x, y, true);
+        let (x, y) = find_spot(&w, ENGLAND, BKind::Barracks, continent, 3.0, 10.0, &mut ai.rng).unwrap();
+        let forward_barracks = w.spawn_building(ENGLAND, BKind::Barracks, x, y, true);
+        w.update_stats();
+        w.nations[ENGLAND].res = [150.0, 0.0, 200.0];
+        w.nations[ENGLAND].income[0] = 100.0;
+        think(&mut w, ENGLAND, &mut ai);
+        assert_eq!(w.bld(forward_barracks).unwrap().queue.len(), 1);
+        assert!(w.bld(home_barracks).unwrap().queue.is_empty());
+    }
 }
 
