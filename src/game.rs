@@ -209,7 +209,7 @@ pub struct Game {
     screen: Screen,
     mode: Mode,
     sel: Vec<Handle>,
-    sel_b: Option<Handle>,
+    sel_b: Vec<Handle>,
     groups: Vec<Vec<Handle>>,
     speed: u32,
     paused: bool,
@@ -249,6 +249,7 @@ pub struct Game {
     notice: Option<(String, f32)>,
     buttons: Vec<Button>,
     last_click: (f32, Option<Handle>),
+    last_barracks_click: Option<(f32, Handle)>,
     clock: f32,
     marker: Option<(V2, f32, bool)>,
     idle_cycle: usize,
@@ -363,7 +364,7 @@ impl Game {
             screen: Screen::Title,
             mode: Mode::Normal,
             sel: Vec::new(),
-            sel_b: None,
+            sel_b: Vec::new(),
             groups: vec![Vec::new(); 10],
             speed: 1,
             paused: false,
@@ -390,6 +391,7 @@ impl Game {
             notice: None,
             buttons: Vec::new(),
             last_click: (-10.0, None),
+            last_barracks_click: None,
             clock: 0.0,
             marker: None,
             idle_cycle: 0,
@@ -807,11 +809,10 @@ impl Game {
             let pl = self.world.player;
             let sel: Vec<Handle> = self.sel.iter().copied().filter(|&h| self.world.unit(h).map_or(false, |u| u.nation as usize == pl || self.seen(u.pos))).collect();
             self.sel = sel;
-            if let Some(b) = self.sel_b {
-                if self.world.bld(b).is_none() {
-                    self.sel_b = None;
-                }
-            }
+            let barracks_group = self.sel_b.len() > 1;
+            self.sel_b.retain(|&h| {
+                self.world.bld(h).is_some_and(|b| !barracks_group || b.nation as usize == pl)
+            });
         }
         if let Some((_, t)) = &mut self.notice {
             *t -= dt;
@@ -1048,9 +1049,13 @@ impl Game {
             }
             Ev::Down(b, x, y) => {
                 self.mouse = (x, y);
+                if b != 0 || self.mode != Mode::Normal || self.over_ui(x, y) {
+                    self.last_barracks_click = None;
+                }
                 match b {
                     0 => {
                         if let Some(a) = self.button_at(x, y) {
+                            self.last_barracks_click = None;
                             self.do_act(a);
                             return false;
                         }
@@ -1281,7 +1286,8 @@ impl Game {
                 u.selected = false;
             }
         }
-        self.sel_b = None;
+        self.sel_b.clear();
+        self.last_barracks_click = None;
     }
 
     fn set_sel(&mut self, hs: Vec<Handle>) {
@@ -1678,6 +1684,7 @@ impl Game {
     }
 
     fn select_release(&mut self, sx: f32, sy: f32, x: f32, y: f32) {
+        let last_barracks_click = self.last_barracks_click.take();
         let p = self.world.player;
         if (sx - x).abs() < 5.0 && (sy - y).abs() < 5.0 {
             let wp = self.screen_to_world(x, y);
@@ -1711,9 +1718,26 @@ impl Game {
                 } else {
                     self.set_sel(vec![h]);
                 }
-            } else if let Some(b) = self.bld_at(wp) {
+            } else if let Some(bh) = self.bld_at(wp) {
                 self.clear_sel();
-                self.sel_b = Some(b);
+                self.sel_b.push(bh);
+                let b = self.world.bld(bh).unwrap();
+                if b.kind == BKind::Barracks && b.nation as usize == p && b.done() {
+                    if last_barracks_click.is_some_and(|(time, h)| h == bh && time > self.clock - 0.35) {
+                        for (i, b) in self.world.blds.iter().enumerate() {
+                            if !b.alive || b.nation as usize != p || b.kind != BKind::Barracks || !b.done() {
+                                continue;
+                            }
+                            let h = self.world.bh(i);
+                            let (x, y) = self.world_to_screen(b.center());
+                            if h != bh && x >= 0.0 && x <= self.gfx.width as f32 && !self.over_ui(x, y) {
+                                self.sel_b.push(h);
+                            }
+                        }
+                    } else {
+                        self.last_barracks_click = Some((self.clock, bh));
+                    }
+                }
             } else {
                 self.clear_sel();
             }
@@ -1756,7 +1780,7 @@ impl Game {
                     }
                 }
             }
-            if let Some(bh) = self.sel_b {
+            for &bh in &self.sel_b {
                 if let Some(b) = self.world.bld_mut(bh) {
                     if b.nation as usize == pl && b.kind != BKind::Farm {
                         b.rally = Some(p);
@@ -2043,8 +2067,7 @@ impl Game {
                 self.rebuild_terrain();
                 self.screen = Screen::Title;
                 self.title_sel = None;
-                self.sel.clear();
-                self.sel_b = None;
+                self.clear_sel();
                 self.show_diplo = false;
                 self.show_help = false;
                 self.show_chron = false;
@@ -2056,10 +2079,23 @@ impl Game {
                 self.fit_title_camera();
             }
             Act::Train(k) => {
-                if let Some(bh) = self.sel_b {
-                    if let Err(e) = self.world.enqueue(bh, k) {
-                        self.notice(e);
+                let mut queued = 0;
+                let mut failure = None;
+                for &bh in &self.sel_b {
+                    if !self.world.bld(bh).is_some_and(|b| b.nation as usize == pl) {
+                        continue;
                     }
+                    match self.world.enqueue(bh, k) {
+                        Ok(()) => queued += 1,
+                        Err(e) => {
+                            failure.get_or_insert(e);
+                        }
+                    }
+                }
+                if self.sel_b.len() > 1 && queued > 0 {
+                    self.notice(&tf!("{} / {} 体の生産を予約", "Queued {} / {} units", "已预约生产 {} / {} 个单位", queued, self.sel_b.len()));
+                } else if let Some(e) = failure {
+                    self.notice(e);
                 }
             }
             Act::TrainPage => self.train_page += 1,
@@ -2353,25 +2389,25 @@ impl Game {
                 self.notice(t!("ドラッグか対角の2点で植林区域を指定。既存の枠を選ぶと民を追加", "Drag or choose two corners. Click an existing forestry region to assign workers.", "拖动或点击两个对角划区，点击已有区域可增加林工。"));
             }
             Act::Repair => {
-                if let Some(h) = self.sel_b {
+                if let &[h] = self.sel_b.as_slice() {
                     if self.world.repair_building(pl, h) {
                         self.notice(t!("建物を補修しました", "Building repaired", "建筑已修复"));
                     }
                 }
             }
             Act::Demolish => {
-                if let Some(bh) = self.sel_b {
+                if let &[bh] = self.sel_b.as_slice() {
                     if let Some(b) = self.world.bld(bh) {
                         if b.nation as usize == pl && (!b.kind.city() || !b.done()) {
                             let i = bh.idx as usize;
                             self.world.remove_building(i);
-                            self.sel_b = None;
+                            self.sel_b.clear();
                         }
                     }
                 }
             }
             Act::ResumeBuild => {
-                if let Some(bh) = self.sel_b {
+                if let &[bh] = self.sel_b.as_slice() {
                     self.dispatch_worker_to_build(bh);
                 }
             }
@@ -2533,7 +2569,7 @@ impl Game {
                 g.ring(c.x, c.y + 0.08, dr, (2.2 * px).max(0.06), 24, [1.0, 0.90, 0.42, 0.90]);
             }
             crate::art::draw_world_building(g, b, nc, px);
-            let sel = self.sel_b == Some(wd.bh(bi));
+            let sel = self.sel_b.contains(&wd.bh(bi));
             if sel {
                 g.rect_outline(x0 - 0.32, y0 - 0.32, x1 + 0.32, y1 + 0.32, (2.2 * px).max(0.05), [1.0, 0.92, 0.55, 0.95]);
                 if let Some(r) = b.rally {
@@ -2815,7 +2851,7 @@ impl Game {
                     BKind::Village => 1.2,
                 };
                 let r = (z * mult).clamp(9.0, 68.0);
-                let sel = self.sel_b == Some(self.world.bh(bi));
+                let sel = self.sel_b.contains(&self.world.bh(bi));
                 let hp_frac = if b.done() && (b.hp < b.kind.max_hp() - 0.5 || sel) {
                     Some((b.hp / b.kind.max_hp()).clamp(0.0, 1.0))
                 } else {
@@ -3664,14 +3700,14 @@ impl Game {
         self.art.draw_corner_ornaments(&self.gfx, ix + 2.0, py + 8.0, ix + iw - 2.0, h - 6.0, 11.0);
         self.render_info(ix + 12.0, py + 12.0, iw - 24.0);
         // 英雄と捕虜の画面（何も選んでいないとき）
-        if self.sel.is_empty() && self.sel_b.is_none() {
+        if self.sel.is_empty() && self.sel_b.is_empty() {
             let mine = self.world.captives.iter().filter(|c| c.captor == pl).count();
             let sub = if mine > 0 { tf!("捕虜{}人", "{} captive(s)", "俘虏{}人", mine) } else { t!("身代金", "ransom", "赎金").to_string() };
             self.add_button(ix + iw - 176.0, h - 58.0, ix + iw - 14.0, h - 14.0, t!("英雄と捕虜", "Heroes", "英雄与俘虏"), &sub, 0, true, Act::Summon, t!("史実の英雄の一覧と、捕らえた英雄の身代金の請求（H）", "The historical heroes, and ransom demands for captured heroes (H)", "史实英雄一览，以及索要被俘英雄的赎金（H）"));
         }
 
         // スマートフォン：選択や建設場所選びを指で解く ✕
-        if self.gfx.compact && (self.mode != Mode::Normal || !self.sel.is_empty() || self.sel_b.is_some()) {
+        if self.gfx.compact && (self.mode != Mode::Normal || !self.sel.is_empty() || !self.sel_b.is_empty()) {
             let tip = if self.mode != Mode::Normal { t!("取り消す", "Cancel", "取消") } else { t!("選択を解く", "Deselect", "取消选择") };
             self.add_button(ix + iw - 46.0, py + 10.0, ix + iw - 8.0, py + 48.0, "✕", "", 0, true, Act::Cancel, tip);
         }
@@ -3864,7 +3900,15 @@ impl Game {
             self.gfx.fill_rect(x, y + 106.0, x + bw, y + 114.0, [0.08, 0.06, 0.05, 0.95]);
             self.gfx.fill_rect(x + 1.0, y + 107.0, x + 1.0 + (bw - 2.0) * f, y + 113.0, [1.0 - f, 0.25 + 0.7 * f, 0.15, 1.0]);
             self.gfx.stroke_rect(x, y + 106.0, x + bw, y + 114.0, 1.0, [0.75, 0.62, 0.34, 0.9]);
-        } else if let Some(bh) = self.sel_b {
+        } else if self.sel_b.len() > 1 {
+            let queued: usize = self.sel_b.iter().filter_map(|&h| self.world.bld(h)).map(|b| b.queue.len()).sum();
+            let title = tf!("兵営 ×{}", "Barracks ×{}", "兵营 ×{}", self.sel_b.len());
+            let queue = tf!("訓練待ち {} 体", "{} units queued", "训练队列中有 {} 个单位", queued);
+            self.gfx.text_shadow(&title, x, y, wd, 28.0, Font::Big, tc);
+            self.gfx.text(&queue, x, y + 30.0, wd, 24.0, Font::Normal, tc);
+            self.gfx.text(t!("生産指示1回につき、各兵営で1体を予約します。", "Each production order queues one unit per barracks.", "每次生产指令在每座兵营预约一个单位。"),
+                x, y + 56.0, wd, 40.0, Font::Small, tc);
+        } else if let Some(&bh) = self.sel_b.first() {
             let b = self.world.bld(bh).unwrap();
             let n = &self.world.nations[b.nation as usize];
             let nc = n.color;
@@ -4179,13 +4223,13 @@ impl Game {
                 let (x0, y0, x1, y1) = pos(8);
                 self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_army), 'V' as u32, n_army > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
             }
-        } else if let Some(bh) = self.sel_b {
+        } else if let Some(&bh) = self.sel_b.first() {
             let b = self.world.bld(bh).unwrap();
             if b.nation as usize != pl {
                 return;
             }
             let (kind, done) = (b.kind, b.done());
-            if let Some(cost) = self.world.repair_cost(pl, bh) {
+            if let Some(cost) = self.world.repair_cost(pl, bh).filter(|_| self.sel_b.len() == 1) {
                 let (repair_x, _, _, _) = pos(1);
                 let (_, _, repair_right, _) = pos(2);
                 let label = tf!("補修（{}）", "Repair ({})", "修复（{}）", Self::cost_str(cost));
@@ -4245,7 +4289,7 @@ impl Game {
                     t!("近くの民をこの建物の建設へ派遣し、中断した建設を再開（または作業人数を追加）する（Q）", "Send nearby workers to build this, resuming a paused build or adding hands (Q)", "派附近的民来建造此建筑，继续中断的工程或增派人手（Q）"),
                 );
             }
-            if !kind.city() || !done {
+            if self.sel_b.len() == 1 && (!kind.city() || !done) {
                 let (x0, y0, x1, y1) = pos(8);
                 self.add_button(x0, y0, x1, y1, t!("取り壊す", "Demolish", "拆除"), "", 0, true, Act::Demolish, t!("この建物を取り壊す（Delete）", "Demolish this building (Delete)", "拆除此建筑（Delete）"));
             }
@@ -4433,9 +4477,9 @@ Pay and the hero returns to one of our towns (until their historical death). Ref
             "", 0, true, Act::RefreshCache, "");
         self.art.draw_inset_box(&self.gfx, x0 + 14.0, y0 + 46.0, x0 + pw - 14.0, y0 + ph - 14.0);
         let text = t!(
-            "■ 目的　1337年、百年戦争が始まる。フランスなら、1453年（史実で戦が終わった年）が暮れるまでに、大陸（ブリテン島の外）からイングランドの街をすべて取り除けば勝利。イングランドなら、フランスの街をすべて取れば勝利。どちらも果たせなければ、ジャンヌ・ダルクの亡霊が天使の軍勢を引き連れて現れ、5年のうちに両国を滅ぼす（敗北）。時間は1年＝30秒（1415年のランカスター朝の戦争からは39秒）。\n\n■ 街と村　主要な街は最初からあり、新しく築けない。街は攻め落とすか、諸侯の寝返り・同盟で持ち主が変わる。民は「村」（E）を自国領内に建てられる。村は糧を生み、資源の運び先になり、民の上限を1、兵の上限を3上げる。\n■ 略奪　敵の村を攻めて壊すと略奪になり、糧・木・鉄・金貨を奪える（イングランドは騎行で多く奪う）。スコットランド軍や大傭兵団も村を荒らす。\n■ 諸侯　街にはそれぞれ治める諸侯がいる（フランドル、ブルターニュ、ナバラ王、ブルゴーニュ公、ガスコーニュ諸侯、パリ市民、シャンパーニュの諸都市、ウェールズなど）。史実の年に諸侯が寝返ったり同盟したりすると、その街はもう一方の王に付く（たとえば1419年のブルゴーニュ公の同盟、1435年のアラスの和約）。ジャンヌ・ダルクがいれば1429年にシャンパーニュの街が王太子に城門を開く。\n\n■ 資源　糧（田）・木（森）・鉄（鉱山）。民が街や村へ運ぶ。街と村からも税が入る。金貨は商人の税・略奪・身代金で得る。\n■ ユニット　数には上限がある（街と村の数で増える）。「訓練／教化」で一体ごとの能力を高められる。兵は糧を食べる（維持費）。\n　歩兵（槍）＞騎兵＞弓兵＞歩兵 の相性。イングランドのロングボウ兵は射程が長く騎兵に強い。フランス騎士の突撃は重い。1375年からは大砲、1445年からは勅令隊、1448年からはフラン・アルシェが加わる。\n■ 英雄　エドワード黒太子、デュ・ゲクラン、ヘンリー5世、ジャンヌ・ダルク、タルボットなど、実在の英雄が史実の年に現れる。英雄のそばの兵は攻撃が上がる。英雄は史実の没年を越えて生きられない。\n■ 身代金　討たれた英雄は捕らえられる。捕らえた英雄は「英雄と捕虜」（H）から相手国に身代金を請求できる。自国の英雄が捕らえられると、相手国が身代金を求めてくる。ジャンヌ・ダルクだけは身代金で救えない。\n■ 船と海　海峡を渡るには船が要る。イングランドは港（海辺）でコグ船を造る。フランスは船を造れず、交易画面（F4）でジェノヴァ（1369年からはカスティーリャも）のガレー船を雇う。海の向こうへ移動・攻撃を命じれば、兵は岸で待ち、船が自動で運ぶ（1隻に6人）。\n\n■ 外交　F2で外交画面。両国は最初から戦っている。休戦（ブレティニー、ルランゲムなど）の申し入れは受けるか退けるか選べる。\n■ スコットランド　国ではないが、史実の時期（ネヴィルズ・クロス、オッターバーン、ホミルドン・ヒルなど）にイングランドの北へ攻め込む。1419年と1424年にはフランスに兵を送る。\n■ 黒死病・反乱　疫病（1348年）や反乱（ジャックリー、ワット・タイラー）で民と兵を失う。\n■ 要塞　民だけを選ぶと「要塞（R）」で築ける。数は「1＋街の数÷3」まで（最大6）。\n■ 交易（F4）　商人は領内を通るだけで金貨を納める。遠方の商人は羊毛の道・ワインの道・イタリア商人・ハンザ商人の先に来る。金貨で資源を買い、傭兵を雇える。\n■ 指揮中は時が止まる　自国の部隊を選ぶと時間が止まり、命令を出すと進む。\n■ 戦場の霧　自国の民・兵・建物の周りしか見えない。\n\n■ 操作\n　左クリック：選択　ドラッグ：範囲選択　ダブルクリック：同種を全選択　Shift：追加選択\n　右クリック：移動／攻撃／採集／建設の手伝い／乗船（兵で船を）／上陸（船で陸を）　建物選択中の右クリック：集合地点\n　A：進軍　S：停止　T：訓練・教化　C：兵⇔民（船は上陸）　Q/W/E…：建設・訓練　H：英雄と捕虜\n　Ctrl を押しながら建物を置く：建設の予約\n　Ctrl+数字：部隊登録　数字：部隊呼び出し　.：待機中の民　Home：都へ\n　ホイール：拡大縮小　中ボタンドラッグ・矢印キー・画面端：スクロール　ミニマップクリック：移動\n　Space：一時停止　＋／－：速度　Esc：告知を閉じる・取り消し　F5：記録　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ",
-            "■ Goal  The Hundred Years' War begins in 1337. As France, win by removing every English town from the Continent (outside Great Britain) before the end of 1453, the year the war historically ended. As England, win by taking every French town. If neither happens, the ghost of Joan of Arc appears with a host of angels and destroys both kingdoms within 5 years (defeat). One year = 30 s (39 s from the Lancastrian War of 1415).\n\n■ Towns and villages  The great towns exist from the start and cannot be founded. Towns change hands by siege, or when their lords change sides or make alliances. Workers can build Villages (E) inside your territory: they produce food, receive resources and raise the worker limit by 1 and soldier limit by 3.\n■ Plunder  Attack and destroy an enemy village to plunder it for food, wood, iron and gold (England takes more on the chevauchée). The Scots and the Great Companies ravage villages too.\n■ Lords  Every town has a lord (Flanders, Brittany, the King of Navarre, the Duke of Burgundy, the Gascon lords, the citizens of Paris, the towns of Champagne, Wales...). When a lord changes sides or makes an alliance in the historical year, those towns go over to the other king (for example Burgundy's alliance with England in 1419 and the Congress of Arras in 1435). If Joan of Arc is alive in 1429, the towns of Champagne open their gates to the Dauphin.\n\n■ Resources  Food (fields), wood (forests), iron (mines). Workers carry them to towns and villages, which also pay taxes. Gold comes from merchant taxes, plunder and ransoms.\n■ Units  There is a limit (raised by towns and villages). Train / Educate raises each unit's power. Soldiers eat food (upkeep).\n  Counters: infantry (spears) > cavalry > archers > infantry. English longbowmen shoot far and are deadly to cavalry; the French knights' charge hits hardest. Cannon arrive in 1375, the Compagnies d'ordonnance in 1445 and the francs-archers in 1448.\n■ Heroes  Real heroes — the Black Prince, Du Guesclin, Henry V, Joan of Arc, Talbot and more — appear in their historical years. Troops near a hero attack harder. No hero lives past their historical death.\n■ Ransom  A defeated hero is captured. Demand a ransom for your captives from the enemy on the Heroes screen (H). If one of your heroes is captured, the enemy demands a ransom from you. Only Joan of Arc cannot be ransomed.\n■ Ships and the sea  Crossing the Channel needs ships. England builds cogs at a Harbor on the coast. France cannot build ships and hires Genoese galleys (and Castilian ones from 1369) on the Trade screen (F4). Order troops across the sea and they wait on the shore while ships ferry them automatically (6 per ship).\n\n■ Diplomacy  F2 opens Diplomacy. The two kingdoms are at war from the start. You may accept or refuse historical truces (Brétigny, Leulinghem...).\n■ Scotland  Not a kingdom in this game, but in its historical years (Neville's Cross, Otterburn, Homildon Hill...) it invades the north of England, and in 1419 and 1424 it sends troops to France.\n■ Plague and revolt  The Black Death (1348) and revolts (the Jacquerie, Wat Tyler) cost workers and soldiers.\n■ Forts  With only workers selected, press Fort (R). You may have 1 + towns ÷ 3 of them (6 at most).\n■ Trade (F4)  Merchants pay gold just by passing through your land. Foreign merchants come by the Wool Road, the Wine Road, the Italian and the Hanseatic routes. Gold buys resources and mercenaries.\n■ Time stops while commanding  Selecting your own units stops time; it resumes when you give an order.\n■ Fog of war  You see only around your own workers, soldiers and buildings.\n\n■ Controls\n  Left click: select   Drag: box select   Double click: select all of a type   Shift: add to selection\n  Right click: move / attack / gather / help build / board (troops on a ship) / land (ship on land)   Right click with a building selected: rally point\n  A: attack-move   S: stop   T: train / educate   C: soldier ⇔ worker (ships: land troops)   Q/W/E...: build / train   H: heroes & captives\n  Hold Ctrl while placing buildings: reserve builds\n  Ctrl+number: save group   Number: recall group   .: idle worker   Home: go to capital\n  Wheel: zoom   Middle drag / arrow keys / screen edge: scroll   Minimap click: jump\n  Space: pause   + / -: speed   Esc: close notice / cancel   F5: save / load   F11: fullscreen   Ctrl++ / Ctrl+−: text size",
-            "■ 目标　百年战争始于1337年。若为法兰西，须在1453年（史实中战争结束之年）年底之前，将英格兰的城镇全部逐出大陆（大不列颠岛以外）即获胜。若为英格兰，夺取法兰西全部城镇即获胜。若双方都未能达成，贞德的亡灵将率领天使大军现身，5年之内毁灭两国（败北）。1年＝30秒（1415年兰开斯特王朝战争起为39秒）。\n\n■ 城镇与村庄　主要城镇一开始就存在，无法新建。城镇可通过攻城，或因诸侯倒戈、结盟而易主。民可在己方领土内建造“村庄”（E）：产粮、接收资源，并使民的上限+1、兵的上限+3。\n■ 劫掠　攻击并摧毁敌方村庄即为劫掠，可夺取粮、木、铁与金币（英格兰在骑行中夺得更多）。苏格兰军与大雇佣兵团也会蹂躏村庄。\n■ 诸侯　每座城镇都有其领主（佛兰德斯、布列塔尼、纳瓦拉国王、勃艮第公爵、加斯科涅诸侯、巴黎市民、香槟诸城、威尔士等）。诸侯在史实年份倒戈或结盟时，其城镇便归附另一位国王（例如1419年勃艮第公爵与英格兰结盟、1435年阿拉斯和约）。若贞德在世，1429年香槟诸城会向王太子打开城门。\n\n■ 资源　粮（田）・木（森林）・铁（矿山）。民将其运往城镇或村庄，城镇与村庄也会缴税。金币来自商人税、劫掠与赎金。\n■ 单位　数量有上限（随城镇与村庄增加）。“训练／教化”可提升每个单位的能力。士兵会消耗粮（维持费）。\n　步兵（枪）＞骑兵＞弓兵＞步兵 的克制关系。英格兰长弓兵射程远、克制骑兵；法兰西骑士的冲锋最为沉重。1375年起有大炮，1445年起有敕令骑士团，1448年起有自由弓兵。\n■ 英雄　黑太子、迪盖克兰、亨利五世、贞德、塔尔博特等真实英雄会在史实年份登场。英雄身边的士兵攻击提升。英雄无法活过史实卒年。\n■ 赎金　被击败的英雄会被俘。可在“英雄与俘虏”（H）界面向敌国索要赎金。己方英雄被俘时，敌国会索要赎金。唯有贞德无法用赎金赎回。\n■ 船与海　渡过海峡需要船。英格兰可在海边的港口建造柯克船。法兰西无法造船，需在贸易界面（F4）雇佣热那亚（1369年起还有卡斯蒂利亚）的桨帆船。命令部队前往海对岸，士兵会在岸边等待，船只自动运送（每船6人）。\n\n■ 外交　F2打开外交界面。两国一开始就处于交战状态。可选择接受或拒绝史实中的休战（布雷蒂尼、勒兰冈等）。\n■ 苏格兰　本作中不作为国家，但会在史实时期（内维尔十字、奥特本、霍米尔顿山等）入侵英格兰北部，并于1419年与1424年派兵援助法兰西。\n■ 黑死病与叛乱　瘟疫（1348年）与叛乱（扎克雷起义、瓦特·泰勒起义）会使民与士兵减少。\n■ 要塞　只选中民时按“要塞（R）”即可修建。数量上限为“1＋城镇数÷3”（最多6座）。\n■ 贸易（F4）　商人仅途经领内即缴纳金币。远方商人经羊毛之路、葡萄酒之路、意大利商人与汉萨商人之路而来。金币可购买资源与雇佣佣兵。\n■ 指挥中时间停止　选中己方部队时时间停止，下达命令后继续。\n■ 战争迷雾　只能看到己方民、士兵与建筑周围。\n\n■ 操作\n　左键：选择　拖动：框选　双击：选择全部同类　Shift：追加选择\n　右键：移动／攻击／采集／协助建造／登船（士兵点船）／登陆（船点陆地）　选中建筑时右键：集结点\n　A：进军　S：停止　T：训练・教化　C：兵⇔民（船为登陆）　Q/W/E…：建造・训练　H：英雄与俘虏\n　按住 Ctrl 放置建筑：预约建造\n　Ctrl+数字：编队　数字：调出编队　.：空闲的民　Home：回到都城\n　滚轮：缩放　中键拖动・方向键・屏幕边缘：滚动　点击小地图：移动\n　Space：暂停　＋／－：速度　Esc：关闭通知・取消　F5：存档　F11：全屏　Ctrl＋＋／Ctrl＋−：文字大小"
+            "■ 目的　1337年、百年戦争が始まる。フランスなら、1453年（史実で戦が終わった年）が暮れるまでに、大陸（ブリテン島の外）からイングランドの街をすべて取り除けば勝利。イングランドなら、フランスの街をすべて取れば勝利。どちらも果たせなければ、ジャンヌ・ダルクの亡霊が天使の軍勢を引き連れて現れ、5年のうちに両国を滅ぼす（敗北）。時間は1年＝30秒（1415年のランカスター朝の戦争からは39秒）。\n\n■ 街と村　主要な街は最初からあり、新しく築けない。街は攻め落とすか、諸侯の寝返り・同盟で持ち主が変わる。民は「村」（E）を自国領内に建てられる。村は糧を生み、資源の運び先になり、民の上限を1、兵の上限を3上げる。\n■ 略奪　敵の村を攻めて壊すと略奪になり、糧・木・鉄・金貨を奪える（イングランドは騎行で多く奪う）。スコットランド軍や大傭兵団も村を荒らす。\n■ 諸侯　街にはそれぞれ治める諸侯がいる（フランドル、ブルターニュ、ナバラ王、ブルゴーニュ公、ガスコーニュ諸侯、パリ市民、シャンパーニュの諸都市、ウェールズなど）。史実の年に諸侯が寝返ったり同盟したりすると、その街はもう一方の王に付く（たとえば1419年のブルゴーニュ公の同盟、1435年のアラスの和約）。ジャンヌ・ダルクがいれば1429年にシャンパーニュの街が王太子に城門を開く。\n\n■ 資源　糧（田）・木（森）・鉄（鉱山）。民が街や村へ運ぶ。街と村からも税が入る。金貨は商人の税・略奪・身代金で得る。\n■ ユニット　数には上限がある（街と村の数で増える）。「訓練／教化」で一体ごとの能力を高められる。兵は糧を食べる（維持費）。\n　歩兵（槍）＞騎兵＞弓兵＞歩兵 の相性。イングランドのロングボウ兵は射程が長く騎兵に強い。フランス騎士の突撃は重い。1375年からは大砲、1445年からは勅令隊、1448年からはフラン・アルシェが加わる。\n■ 英雄　エドワード黒太子、デュ・ゲクラン、ヘンリー5世、ジャンヌ・ダルク、タルボットなど、実在の英雄が史実の年に現れる。英雄のそばの兵は攻撃が上がる。英雄は史実の没年を越えて生きられない。\n■ 身代金　討たれた英雄は捕らえられる。捕らえた英雄は「英雄と捕虜」（H）から相手国に身代金を請求できる。自国の英雄が捕らえられると、相手国が身代金を求めてくる。ジャンヌ・ダルクだけは身代金で救えない。\n■ 船と海　海峡を渡るには船が要る。イングランドは港（海辺）でコグ船を造る。フランスは船を造れず、交易画面（F4）でジェノヴァ（1369年からはカスティーリャも）のガレー船を雇う。海の向こうへ移動・攻撃を命じれば、兵は岸で待ち、船が自動で運ぶ（1隻に6人）。\n\n■ 外交　F2で外交画面。両国は最初から戦っている。休戦（ブレティニー、ルランゲムなど）の申し入れは受けるか退けるか選べる。\n■ スコットランド　国ではないが、史実の時期（ネヴィルズ・クロス、オッターバーン、ホミルドン・ヒルなど）にイングランドの北へ攻め込む。1419年と1424年にはフランスに兵を送る。\n■ 黒死病・反乱　疫病（1348年）や反乱（ジャックリー、ワット・タイラー）で民と兵を失う。\n■ 要塞　民だけを選ぶと「要塞（R）」で築ける。数は「1＋街の数÷3」まで（最大6）。\n■ 交易（F4）　商人は領内を通るだけで金貨を納める。遠方の商人は羊毛の道・ワインの道・イタリア商人・ハンザ商人の先に来る。金貨で資源を買い、傭兵を雇える。\n■ 指揮中は時が止まる　自国の部隊を選ぶと時間が止まり、命令を出すと進む。\n■ 戦場の霧　自国の民・兵・建物の周りしか見えない。\n\n■ 操作\n　左クリック：選択　ドラッグ：範囲選択　ダブルクリック：同種を全選択（完成済みの兵営も画面内で一括選択・生産）　Shift：追加選択\n　右クリック：移動／攻撃／採集／建設の手伝い／乗船（兵で船を）／上陸（船で陸を）　建物選択中の右クリック：集合地点\n　A：進軍　S：停止　T：訓練・教化　C：兵⇔民（船は上陸）　Q/W/E…：建設・訓練　H：英雄と捕虜\n　Ctrl を押しながら建物を置く：建設の予約\n　Ctrl+数字：部隊登録　数字：部隊呼び出し　.：待機中の民　Home：都へ\n　ホイール：拡大縮小　中ボタンドラッグ・矢印キー・画面端：スクロール　ミニマップクリック：移動\n　Space：一時停止　＋／－：速度　Esc：告知を閉じる・取り消し　F5：記録　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ",
+            "■ Goal  The Hundred Years' War begins in 1337. As France, win by removing every English town from the Continent (outside Great Britain) before the end of 1453, the year the war historically ended. As England, win by taking every French town. If neither happens, the ghost of Joan of Arc appears with a host of angels and destroys both kingdoms within 5 years (defeat). One year = 30 s (39 s from the Lancastrian War of 1415).\n\n■ Towns and villages  The great towns exist from the start and cannot be founded. Towns change hands by siege, or when their lords change sides or make alliances. Workers can build Villages (E) inside your territory: they produce food, receive resources and raise the worker limit by 1 and soldier limit by 3.\n■ Plunder  Attack and destroy an enemy village to plunder it for food, wood, iron and gold (England takes more on the chevauchée). The Scots and the Great Companies ravage villages too.\n■ Lords  Every town has a lord (Flanders, Brittany, the King of Navarre, the Duke of Burgundy, the Gascon lords, the citizens of Paris, the towns of Champagne, Wales...). When a lord changes sides or makes an alliance in the historical year, those towns go over to the other king (for example Burgundy's alliance with England in 1419 and the Congress of Arras in 1435). If Joan of Arc is alive in 1429, the towns of Champagne open their gates to the Dauphin.\n\n■ Resources  Food (fields), wood (forests), iron (mines). Workers carry them to towns and villages, which also pay taxes. Gold comes from merchant taxes, plunder and ransoms.\n■ Units  There is a limit (raised by towns and villages). Train / Educate raises each unit's power. Soldiers eat food (upkeep).\n  Counters: infantry (spears) > cavalry > archers > infantry. English longbowmen shoot far and are deadly to cavalry; the French knights' charge hits hardest. Cannon arrive in 1375, the Compagnies d'ordonnance in 1445 and the francs-archers in 1448.\n■ Heroes  Real heroes — the Black Prince, Du Guesclin, Henry V, Joan of Arc, Talbot and more — appear in their historical years. Troops near a hero attack harder. No hero lives past their historical death.\n■ Ransom  A defeated hero is captured. Demand a ransom for your captives from the enemy on the Heroes screen (H). If one of your heroes is captured, the enemy demands a ransom from you. Only Joan of Arc cannot be ransomed.\n■ Ships and the sea  Crossing the Channel needs ships. England builds cogs at a Harbor on the coast. France cannot build ships and hires Genoese galleys (and Castilian ones from 1369) on the Trade screen (F4). Order troops across the sea and they wait on the shore while ships ferry them automatically (6 per ship).\n\n■ Diplomacy  F2 opens Diplomacy. The two kingdoms are at war from the start. You may accept or refuse historical truces (Brétigny, Leulinghem...).\n■ Scotland  Not a kingdom in this game, but in its historical years (Neville's Cross, Otterburn, Homildon Hill...) it invades the north of England, and in 1419 and 1424 it sends troops to France.\n■ Plague and revolt  The Black Death (1348) and revolts (the Jacquerie, Wat Tyler) cost workers and soldiers.\n■ Forts  With only workers selected, press Fort (R). You may have 1 + towns ÷ 3 of them (6 at most).\n■ Trade (F4)  Merchants pay gold just by passing through your land. Foreign merchants come by the Wool Road, the Wine Road, the Italian and the Hanseatic routes. Gold buys resources and mercenaries.\n■ Time stops while commanding  Selecting your own units stops time; it resumes when you give an order.\n■ Fog of war  You see only around your own workers, soldiers and buildings.\n\n■ Controls\n  Left click: select   Drag: box select   Double click: select all of a type (completed barracks on screen can train together)   Shift: add to selection\n  Right click: move / attack / gather / help build / board (troops on a ship) / land (ship on land)   Right click with a building selected: rally point\n  A: attack-move   S: stop   T: train / educate   C: soldier ⇔ worker (ships: land troops)   Q/W/E...: build / train   H: heroes & captives\n  Hold Ctrl while placing buildings: reserve builds\n  Ctrl+number: save group   Number: recall group   .: idle worker   Home: go to capital\n  Wheel: zoom   Middle drag / arrow keys / screen edge: scroll   Minimap click: jump\n  Space: pause   + / -: speed   Esc: close notice / cancel   F5: save / load   F11: fullscreen   Ctrl++ / Ctrl+−: text size",
+            "■ 目标　百年战争始于1337年。若为法兰西，须在1453年（史实中战争结束之年）年底之前，将英格兰的城镇全部逐出大陆（大不列颠岛以外）即获胜。若为英格兰，夺取法兰西全部城镇即获胜。若双方都未能达成，贞德的亡灵将率领天使大军现身，5年之内毁灭两国（败北）。1年＝30秒（1415年兰开斯特王朝战争起为39秒）。\n\n■ 城镇与村庄　主要城镇一开始就存在，无法新建。城镇可通过攻城，或因诸侯倒戈、结盟而易主。民可在己方领土内建造“村庄”（E）：产粮、接收资源，并使民的上限+1、兵的上限+3。\n■ 劫掠　攻击并摧毁敌方村庄即为劫掠，可夺取粮、木、铁与金币（英格兰在骑行中夺得更多）。苏格兰军与大雇佣兵团也会蹂躏村庄。\n■ 诸侯　每座城镇都有其领主（佛兰德斯、布列塔尼、纳瓦拉国王、勃艮第公爵、加斯科涅诸侯、巴黎市民、香槟诸城、威尔士等）。诸侯在史实年份倒戈或结盟时，其城镇便归附另一位国王（例如1419年勃艮第公爵与英格兰结盟、1435年阿拉斯和约）。若贞德在世，1429年香槟诸城会向王太子打开城门。\n\n■ 资源　粮（田）・木（森林）・铁（矿山）。民将其运往城镇或村庄，城镇与村庄也会缴税。金币来自商人税、劫掠与赎金。\n■ 单位　数量有上限（随城镇与村庄增加）。“训练／教化”可提升每个单位的能力。士兵会消耗粮（维持费）。\n　步兵（枪）＞骑兵＞弓兵＞步兵 的克制关系。英格兰长弓兵射程远、克制骑兵；法兰西骑士的冲锋最为沉重。1375年起有大炮，1445年起有敕令骑士团，1448年起有自由弓兵。\n■ 英雄　黑太子、迪盖克兰、亨利五世、贞德、塔尔博特等真实英雄会在史实年份登场。英雄身边的士兵攻击提升。英雄无法活过史实卒年。\n■ 赎金　被击败的英雄会被俘。可在“英雄与俘虏”（H）界面向敌国索要赎金。己方英雄被俘时，敌国会索要赎金。唯有贞德无法用赎金赎回。\n■ 船与海　渡过海峡需要船。英格兰可在海边的港口建造柯克船。法兰西无法造船，需在贸易界面（F4）雇佣热那亚（1369年起还有卡斯蒂利亚）的桨帆船。命令部队前往海对岸，士兵会在岸边等待，船只自动运送（每船6人）。\n\n■ 外交　F2打开外交界面。两国一开始就处于交战状态。可选择接受或拒绝史实中的休战（布雷蒂尼、勒兰冈等）。\n■ 苏格兰　本作中不作为国家，但会在史实时期（内维尔十字、奥特本、霍米尔顿山等）入侵英格兰北部，并于1419年与1424年派兵援助法兰西。\n■ 黑死病与叛乱　瘟疫（1348年）与叛乱（扎克雷起义、瓦特·泰勒起义）会使民与士兵减少。\n■ 要塞　只选中民时按“要塞（R）”即可修建。数量上限为“1＋城镇数÷3”（最多6座）。\n■ 贸易（F4）　商人仅途经领内即缴纳金币。远方商人经羊毛之路、葡萄酒之路、意大利商人与汉萨商人之路而来。金币可购买资源与雇佣佣兵。\n■ 指挥中时间停止　选中己方部队时时间停止，下达命令后继续。\n■ 战争迷雾　只能看到己方民、士兵与建筑周围。\n\n■ 操作\n　左键：选择　拖动：框选　双击：选择全部同类（可选中屏幕内已完工的兵营并批量生产）　Shift：追加选择\n　右键：移动／攻击／采集／协助建造／登船（士兵点船）／登陆（船点陆地）　选中建筑时右键：集结点\n　A：进军　S：停止　T：训练・教化　C：兵⇔民（船为登陆）　Q/W/E…：建造・训练　H：英雄与俘虏\n　按住 Ctrl 放置建筑：预约建造\n　Ctrl+数字：编队　数字：调出编队　.：空闲的民　Home：回到都城\n　滚轮：缩放　中键拖动・方向键・屏幕边缘：滚动　点击小地图：移动\n　Space：暂停　＋／－：速度　Esc：关闭通知・取消　F5：存档　F11：全屏　Ctrl＋＋／Ctrl＋−：文字大小"
         );
         // 入りきらなければ小さい字にする
         let f = if self.gfx.measure_h(text, Font::Normal, pw - 48.0) > ph - 64.0 { Font::Small } else { Font::Normal };
